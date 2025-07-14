@@ -59,6 +59,8 @@ jobs:
           echo "::group::yggmine-native-linux-amd64.so"
           CGO_ENABLED=1 GOOS=linux GOARCH=amd64 go build -buildmode=c-shared -o yggmine-native-linux-amd64.so
           echo "::endgroup::"
+      - name: Run Chmod
+        run: chmod +x *.so
       - name: Run UPX
         uses: crazy-max/ghaction-upx@v3
         with:
