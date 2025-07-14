@@ -38,6 +38,14 @@ jobs:
         run: |
           sudo apt update
           sudo apt install -y gcc-mingw-w64
+      - name: Install gcc-aarch64 for Linux arm
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc-aarch64-linux-gnu
+      - name: Install gcc-aarch64-w64-mingw32 for Windows ARM
+        run: |
+          sudo apt update
+          sudo apt install -y gcc-aarch64-w64-mingw32
 
       - name: Check if commit needs release
         run: |
@@ -56,17 +64,14 @@ jobs:
           echo "::group::yggmine-native-windows-amd64.dll"
           CGO_ENABLED=1 GOOS=windows GOARCH=amd64 CC=x86_64-w64-mingw32-gcc go build -ldflags="-s" -buildmode=c-shared -o yggmine-native-windows-amd64.dll
           echo "::endgroup::"
+          echo "::group::yggmine-native-windows-amd64.dll"
+          CGO_ENABLED=1 GOOS=windows GOARCH=arm64 CC=aarch64-w64-mingw32-gcc go build -ldflags="-s" -buildmode=c-shared -o yggmine-native-windows-amd64.dll
+          echo "::endgroup::"
           echo "::group::yggmine-native-linux-amd64.so"
           CGO_ENABLED=1 GOOS=linux GOARCH=amd64 go build -ldflags="-s" -buildmode=c-shared -o yggmine-native-linux-amd64.so
           echo "::endgroup::"
           echo "::group::yggmine-native-linux-arm64.so"
-          CGO_ENABLED=1 GOOS=linux GOARCH=arm64 go build -ldflags="-s" -buildmode=c-shared -o yggmine-native-linux-arm64.so
-          echo "::endgroup::"
-          echo "::group::yggmine-native-darwin-amd64.dylib"
-          CGO_ENABLED=1 GOOS=darwin GOARCH=amd64 go build -buildmode=c-shared -o dist/yggmine-native-darwin-amd64.dylib
-          echo "::endgroup::"
-          echo "::group::yggmine-native-darwin-arm64.dylib"
-          CGO_ENABLED=1 GOOS=darwin GOARCH=arm64 go build -buildmode=c-shared -o dist/yggmine-native-darwin-arm64.dylib
+          CGO_ENABLED=1 GOOS=linux GOARCH=arm64 CC=aarch64-linux-gnu-gcc go build -ldflags="-s" -buildmode=c-shared -o yggmine-native-linux-arm64.so
           echo "::endgroup::"
       - name: Run Chmod
         run: chmod +x *
