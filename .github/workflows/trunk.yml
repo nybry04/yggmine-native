@@ -42,10 +42,6 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y gcc-aarch64-linux-gnu
-      - name: Install gcc-aarch64-w64-mingw32 for Windows ARM
-        run: |
-          sudo apt update
-          sudo apt install -y gcc-aarch64-w64-mingw32
 
       - name: Check if commit needs release
         run: |
@@ -63,9 +59,6 @@ jobs:
           set -e
           echo "::group::yggmine-native-windows-amd64.dll"
           CGO_ENABLED=1 GOOS=windows GOARCH=amd64 CC=x86_64-w64-mingw32-gcc go build -ldflags="-s" -buildmode=c-shared -o yggmine-native-windows-amd64.dll
-          echo "::endgroup::"
-          echo "::group::yggmine-native-windows-amd64.dll"
-          CGO_ENABLED=1 GOOS=windows GOARCH=arm64 CC=aarch64-w64-mingw32-gcc go build -ldflags="-s" -buildmode=c-shared -o yggmine-native-windows-amd64.dll
           echo "::endgroup::"
           echo "::group::yggmine-native-linux-amd64.so"
           CGO_ENABLED=1 GOOS=linux GOARCH=amd64 go build -ldflags="-s" -buildmode=c-shared -o yggmine-native-linux-amd64.so
