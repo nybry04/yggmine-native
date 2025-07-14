@@ -1,0 +1,59 @@
+name: Release build
+
+on:
+  pull_request:
+    paths-ignore:
+      - "README.md"
+  push:
+    branches:
+      - main
+    tags:
+      - '[0-9]+.[0-9]+.[0-9]+'
+      - '[0-9]+.[0-9]+.[0-9]+-[0-9]+'
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    strategy:
+      fail-fast: true
+
+    name: Build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.24.2'
+
+      - name: Check if commit needs release
+        run: |
+          if [ "${{ github.ref_type }}" = "tag" ]; then
+            echo "RELEASENAME=${{ github.ref_name }}" >> "$GITHUB_ENV"
+          elif [ "${{ github.event_name }}" = "push" ] && [ "${{ github.ref }}" = "refs/heads/main" ]; then
+            echo "PRERELEASE=--prerelease" >> "$GITHUB_ENV"
+            echo "RELEASENAME=trunk" >> "$GITHUB_ENV"
+          else
+            echo "Not a tag or push to main branch, skipping upload"
+            echo "SKIP_UPLOAD=1" >> "$GITHUB_ENV"
+          fi
+      - name: Build yggmine-native
+        run: |
+          set -e
+          echo "::group::yggmine-native-windows-amd64.dll"
+          GOOS=windows GOARCH=amd64 go build -ldflags="-s" -buildmode=c-shared -o yggmine-native-windows-amd64.dll
+          echo "::endgroup::"
+      - name: Publish release
+        if: ${{ env.SKIP_UPLOAD == '' }}
+        run: |
+          gh release create "${{ env.RELEASENAME }}" ${{ env.PRERELEASE }} yggmine-native-* || gh release upload "${{ env.RELEASENAME }}" yggmine-native-* --clobber
+        env:
+          GH_TOKEN: ${{ github.token }}
