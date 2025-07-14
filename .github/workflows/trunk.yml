@@ -56,6 +56,14 @@ jobs:
           echo "::group::yggmine-native-windows-amd64.dll"
           CGO_ENABLED=1 GOOS=windows GOARCH=amd64 CC=x86_64-w64-mingw32-gcc go build -ldflags="-s" -buildmode=c-shared -o yggmine-native-windows-amd64.dll
           echo "::endgroup::"
+      - name: Run UPX
+        uses: crazy-max/ghaction-upx@v3
+        with:
+          version: 'latest'
+          files: |
+            *.dll
+            *.so
+            *.dylib
       - name: Publish release
         if: ${{ env.SKIP_UPLOAD == '' }}
         run: |
