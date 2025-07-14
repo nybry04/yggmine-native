@@ -49,7 +49,7 @@ jobs:
         run: |
           set -e
           echo "::group::yggmine-native-windows-amd64.dll"
-          GOOS=windows GOARCH=amd64 go build -ldflags="-s" -buildmode=c-shared -o yggmine-native-windows-amd64.dll
+          CGO_ENABLED=1 GOOS=windows GOARCH=amd64 go build -ldflags="-s" -buildmode=c-shared -o yggmine-native-windows-amd64.dll
           echo "::endgroup::"
       - name: Publish release
         if: ${{ env.SKIP_UPLOAD == '' }}
