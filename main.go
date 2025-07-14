@@ -1,9 +1,5 @@
 package main
 
-/*
-#include <stdlib.h>
-*/
-import "C"
 import (
 	"encoding/hex"
 	"github.com/gologme/log"
@@ -31,26 +27,26 @@ var ygg yggdrasil
 var mutex sync.Mutex
 
 //export Init
-func Init(conf *C.char) C.int {
+func Init(confPtr *byte) int32 {
 	mutex.Lock()
 	defer mutex.Unlock()
 	if logger == nil {
 		logger = log.New(os.Stdout, "", log.Flags())
 	}
 
-	if conf == nil {
-		return C.int(-1)
+	if confPtr == nil {
+		return -1
 	}
 
 	if ygg.core != nil {
-		return C.int(-2)
+		return -2
 	}
 
-	reader := strings.NewReader(C.GoString(conf))
+	reader := strings.NewReader(cStringToGoString(confPtr))
 	cfg := config.GenerateConfig()
 
 	if _, err := cfg.ReadFrom(reader); err != nil {
-		return C.int(-3)
+		return -2
 	}
 
 	var err error
@@ -63,16 +59,16 @@ func Init(conf *C.char) C.int {
 			options = append(options, core.Peer{URI: peer})
 		}
 		if ygg.core, err = core.New(cfg.Certificate, logger, options...); err != nil {
-			return C.int(-4)
+			return -3
 		}
 	}
 
 	ygg.net, err = netstack.CreateYggdrasilNetstack(ygg.core)
 	if err != nil {
-		return C.int(-5)
+		return -4
 	}
 
-	return C.int(0)
+	return 0
 }
 
 //export Shutdown
@@ -86,15 +82,15 @@ func Shutdown() {
 }
 
 //export NewPrivateKey
-func NewPrivateKey(buf unsafe.Pointer, bufLen C.int) {
+func NewPrivateKey(buf unsafe.Pointer, bufLen int32) {
 	copyStrToBuf(hex.EncodeToString(config.GenerateConfig().PrivateKey), buf, bufLen)
 }
 
 //export StartSocks5Proxy
-func StartSocks5Proxy() C.int {
+func StartSocks5Proxy() int32 {
 	if ygg.socks5.listener != nil {
 		logger.Errorln("Proxy server already started")
-		return C.int(0)
+		return 0
 	}
 	socksOptions := []socks5.Option{
 		socks5.WithDial(ygg.net.DialContext),
@@ -105,7 +101,7 @@ func StartSocks5Proxy() C.int {
 	ygg.socks5.listener, err = net.Listen("tcp", "127.0.0.1:0") // свободный порт
 	if err != nil {
 		logger.Fatalln("Can't start socks5 proxy")
-		return C.int(0)
+		return 0
 	}
 
 	go func() {
@@ -116,7 +112,7 @@ func StartSocks5Proxy() C.int {
 		}
 	}()
 
-	return C.int(ygg.socks5.listener.Addr().(*net.TCPAddr).Port)
+	return int32(ygg.socks5.listener.Addr().(*net.TCPAddr).Port)
 }
 
 //export StopSocks5Proxy
@@ -126,33 +122,19 @@ func StopSocks5Proxy() {
 	}
 }
 
-//export GetAddress
-func GetAddress() *C.char {
-	mutex.Lock()
-	defer mutex.Unlock()
-	return C.CString(ygg.core.Address().String())
-}
-
-//export FreeCString
-func FreeCString(str *C.char) {
-	mutex.Lock()
-	defer mutex.Unlock()
-	C.free(unsafe.Pointer(str))
-}
-
 //export CreateProxyServerTCP
-func CreateProxyServerTCP(address *C.char) C.int {
+func CreateProxyServerTCP(addressPtr *byte) int32 {
 	mutex.Lock()
 	defer mutex.Unlock()
 	if ygg.net == nil {
-		return C.int(-1)
+		return -1
 	}
 
 	listenerAddr, _ := net.ResolveTCPAddr("tcp", "127.0.0.1:0") // выбрать свободный порт
 	listener, err := net.ListenTCP("tcp", listenerAddr)
 	if err != nil {
 		logger.Println("Failed listen")
-		return C.int(-2)
+		return -2
 	}
 
 	go func() {
@@ -163,8 +145,9 @@ func CreateProxyServerTCP(address *C.char) C.int {
 			return
 		}
 		defer c.Close()
-		logger.Println("Trying resolve " + C.GoString(address))
-		addr, err := net.ResolveTCPAddr("tcp", C.GoString(address))
+		address := cStringToGoString(addressPtr)
+		logger.Println("Trying resolve " + address)
+		addr, err := net.ResolveTCPAddr("tcp", address)
 		if err != nil {
 			logger.Println("Failed to resolve tcp addr")
 			return
@@ -182,9 +165,27 @@ func CreateProxyServerTCP(address *C.char) C.int {
 		ProxyTCP(ygg.core.MTU(), c, r)
 	}()
 
-	return C.int(listener.Addr().(*net.TCPAddr).Port)
+	return int32(listener.Addr().(*net.TCPAddr).Port)
 }
-func copyStrToBuf(msg string, buf unsafe.Pointer, bufLen C.int) {
+
+func cStringToGoString(cstr *byte) string {
+	if cstr == nil {
+		return ""
+	}
+	ptr := uintptr(unsafe.Pointer(cstr))
+	var bytes []byte
+	for {
+		b := *(*byte)(unsafe.Pointer(ptr))
+		if b == 0 {
+			break
+		}
+		bytes = append(bytes, b)
+		ptr++
+	}
+	return string(bytes)
+}
+
+func copyStrToBuf(msg string, buf unsafe.Pointer, bufLen int32) {
 	bytes := []byte(msg)
 
 	if len(bytes) >= int(bufLen) {
