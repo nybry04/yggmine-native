@@ -75,10 +75,9 @@ jobs:
           files: |
             *.dll
             *.so
-            *.dylib
       - name: Publish release
         if: ${{ env.SKIP_UPLOAD == '' }}
         run: |
-          gh release create "${{ env.RELEASENAME }}" ${{ env.PRERELEASE }} yggmine-native-* || gh release upload "${{ env.RELEASENAME }}" yggmine-native-* --clobber
+          gh release create "${{ env.RELEASENAME }}" ${{ env.PRERELEASE }} yggmine-native-*.dll yggmine-native-*.so || gh release upload "${{ env.RELEASENAME }}" yggmine-native-*.dll yggmine-native-*.so --clobber
         env:
           GH_TOKEN: ${{ github.token }}
