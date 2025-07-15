@@ -23,6 +23,7 @@ type yggdrasil struct {
 }
 
 const (
+	noErr                  = C.int(0)
 	errNoConfig            = C.int(1)
 	errAlreadyInitialized  = C.int(2)
 	errConfigParse         = C.int(3)
@@ -77,23 +78,23 @@ func Init(conf *C.char) C.int {
 		return errWhenNetstackCreate
 	}
 
-	return 0
+	return noErr
 }
 
 //export Shutdown
-func Shutdown() {
-	if ygg.core != nil {
-		ygg.core = nil
+func Shutdown() C.int {
+	if ygg.core == nil || ygg.net == nil {
+		return errYggNotInitialized
 	}
-	if ygg.net != nil {
-		ygg.net = nil
-	}
+	ygg.core = nil
+	ygg.net = nil
+	return noErr
 }
 
 //export NewPrivateKey
 func NewPrivateKey(buf *C.char, bufLen C.int) C.int {
 	FillBuffer(hex.EncodeToString(config.GenerateConfig().PrivateKey), buf, bufLen)
-	return 0
+	return noErr
 }
 
 //export StartSocks5Proxy
@@ -116,7 +117,7 @@ func StartSocks5Proxy(buf *C.int) C.int {
 
 	FillBufferInt(int32(ygg.socks5.listener.Addr().(*net.TCPAddr).Port), buf)
 
-	return 0
+	return noErr
 }
 
 //export StopSocks5Proxy
@@ -127,7 +128,7 @@ func StopSocks5Proxy() C.int {
 	if err := ygg.socks5.listener.Close(); err != nil {
 		return errProxyStopError
 	}
-	return 0
+	return noErr
 }
 
 ////export CreateProxyServerTCP
