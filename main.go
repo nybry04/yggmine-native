@@ -1,5 +1,6 @@
 package main
 
+import "C"
 import (
 	"encoding/hex"
 	"github.com/gologme/log"
@@ -10,7 +11,6 @@ import (
 	"net"
 	"os"
 	"strings"
-	"sync"
 	"unsafe"
 )
 
@@ -22,31 +22,41 @@ type yggdrasil struct {
 	}
 }
 
+const (
+	errNoConfig            = C.int(1)
+	errAlreadyInitialized  = C.int(2)
+	errConfigParse         = C.int(3)
+	errWhenCoreCreate      = C.int(4)
+	errWhenNetstackCreate  = C.int(5)
+	errProxyAlreadyStarted = C.int(6)
+	errCantStartProxy      = C.int(7)
+	errProxyAlreadyStopped = C.int(8)
+	errProxyStopError      = C.int(9)
+	errYggNotInitialized   = C.int(10)
+)
+
 var logger *log.Logger
 var ygg yggdrasil
-var mutex sync.Mutex
 
 //export Init
-func Init(confPtr *byte) int32 {
-	mutex.Lock()
-	defer mutex.Unlock()
+func Init(conf *C.char) C.int {
 	if logger == nil {
 		logger = log.New(os.Stdout, "", log.Flags())
 	}
 
-	if confPtr == nil {
-		return -1
+	if conf == nil {
+		return errNoConfig
 	}
 
 	if ygg.core != nil {
-		return -2
+		return errAlreadyInitialized
 	}
 
-	reader := strings.NewReader(cStringToGoString(confPtr))
+	reader := strings.NewReader(C.GoString(conf))
 	cfg := config.GenerateConfig()
 
 	if _, err := cfg.ReadFrom(reader); err != nil {
-		return -2
+		return errConfigParse
 	}
 
 	var err error
@@ -59,13 +69,12 @@ func Init(confPtr *byte) int32 {
 			options = append(options, core.Peer{URI: peer})
 		}
 		if ygg.core, err = core.New(cfg.Certificate, logger, options...); err != nil {
-			return -3
+			return errWhenCoreCreate
 		}
 	}
 
-	ygg.net, err = netstack.CreateYggdrasilNetstack(ygg.core)
-	if err != nil {
-		return -4
+	if ygg.net, err = netstack.CreateYggdrasilNetstack(ygg.core); err != nil {
+		return errWhenNetstackCreate
 	}
 
 	return 0
@@ -82,15 +91,15 @@ func Shutdown() {
 }
 
 //export NewPrivateKey
-func NewPrivateKey(buf unsafe.Pointer, bufLen int32) {
-	copyStrToBuf(hex.EncodeToString(config.GenerateConfig().PrivateKey), buf, bufLen)
+func NewPrivateKey(buf *C.char, bufLen C.int) C.int {
+	FillBuffer(hex.EncodeToString(config.GenerateConfig().PrivateKey), buf, bufLen)
+	return 0
 }
 
 //export StartSocks5Proxy
-func StartSocks5Proxy() int32 {
+func StartSocks5Proxy(buf *C.int) C.int {
 	if ygg.socks5.listener != nil {
-		logger.Errorln("Proxy server already started")
-		return 0
+		return errProxyAlreadyStarted
 	}
 	socksOptions := []socks5.Option{
 		socks5.WithDial(ygg.net.DialContext),
@@ -98,103 +107,87 @@ func StartSocks5Proxy() int32 {
 	server := socks5.NewServer(socksOptions...)
 
 	var err error
-	ygg.socks5.listener, err = net.Listen("tcp", "127.0.0.1:0") // свободный порт
-	if err != nil {
-		logger.Fatalln("Can't start socks5 proxy")
-		return 0
+	if ygg.socks5.listener, err = net.Listen("tcp", "127.0.0.1:0"); err != nil {
+		return errCantStartProxy
 	}
 
-	go func() {
-		defer logger.Println("Socks5 proxy stopped")
-		err := server.Serve(ygg.socks5.listener)
-		if err != nil {
-			logger.Println(err)
-		}
-	}()
+	// Пропускаем обработку ошибок, т.к. не можем передать ее в программу
+	go server.Serve(ygg.socks5.listener)
 
-	return int32(ygg.socks5.listener.Addr().(*net.TCPAddr).Port)
+	FillBufferInt(int32(ygg.socks5.listener.Addr().(*net.TCPAddr).Port), buf)
+
+	return 0
 }
 
 //export StopSocks5Proxy
-func StopSocks5Proxy() {
-	if ygg.socks5.listener != nil {
-		_ = ygg.socks5.listener.Close()
+func StopSocks5Proxy() C.int {
+	if ygg.socks5.listener == nil {
+		return errProxyAlreadyStopped
 	}
+	if err := ygg.socks5.listener.Close(); err != nil {
+		return errProxyStopError
+	}
+	return 0
 }
 
-//export CreateProxyServerTCP
-func CreateProxyServerTCP(addressPtr *byte) int32 {
-	mutex.Lock()
-	defer mutex.Unlock()
-	if ygg.net == nil {
-		return -1
+////export CreateProxyServerTCP
+//func CreateProxyServerTCP(addressPtr *byte) C.int {
+//	if ygg.net == nil {
+//		return errYggNotInitialized
+//	}
+//
+//	listenerAddr, _ := net.ResolveTCPAddr("tcp", "127.0.0.1:0") // выбрать свободный порт
+//	listener, err := net.ListenTCP("tcp", listenerAddr)
+//	if err != nil {
+//		logger.Println("Failed listen")
+//		return -2
+//	}
+//
+//	go func() {
+//		defer listener.Close()
+//		c, err := listener.Accept()
+//		if err != nil {
+//			logger.Println("Failed to accept")
+//			return
+//		}
+//		defer c.Close()
+//		address := cStringToGoString(addressPtr)
+//		logger.Println("Trying resolve " + address)
+//		addr, err := net.ResolveTCPAddr("tcp", address)
+//		if err != nil {
+//			logger.Println("Failed to resolve tcp addr")
+//			return
+//		}
+//		r, err := ygg.net.DialTCP(addr)
+//		if err != nil {
+//			logger.Println("Failed to dial")
+//			return
+//		}
+//		defer r.Close()
+//		logger.Println("New socat at " + listener.Addr().String())
+//		defer func() {
+//			logger.Println("Socat closed " + listener.Addr().String())
+//		}()
+//		ProxyTCP(ygg.core.MTU(), c, r)
+//	}()
+//
+//	return int32(listener.Addr().(*net.TCPAddr).Port)
+//}
+
+// FillBuffer Заполняем буфер на стороне приложения, чтобы предотвратить утечки памяти
+func FillBuffer(data string, buf *C.char, bufSize C.int) {
+	n := len(data)
+	if n > int(bufSize) {
+		n = int(bufSize) // Не записываем больше буфера
 	}
-
-	listenerAddr, _ := net.ResolveTCPAddr("tcp", "127.0.0.1:0") // выбрать свободный порт
-	listener, err := net.ListenTCP("tcp", listenerAddr)
-	if err != nil {
-		logger.Println("Failed listen")
-		return -2
-	}
-
-	go func() {
-		defer listener.Close()
-		c, err := listener.Accept()
-		if err != nil {
-			logger.Println("Failed to accept")
-			return
-		}
-		defer c.Close()
-		address := cStringToGoString(addressPtr)
-		logger.Println("Trying resolve " + address)
-		addr, err := net.ResolveTCPAddr("tcp", address)
-		if err != nil {
-			logger.Println("Failed to resolve tcp addr")
-			return
-		}
-		r, err := ygg.net.DialTCP(addr)
-		if err != nil {
-			logger.Println("Failed to dial")
-			return
-		}
-		defer r.Close()
-		logger.Println("New socat at " + listener.Addr().String())
-		defer func() {
-			logger.Println("Socat closed " + listener.Addr().String())
-		}()
-		ProxyTCP(ygg.core.MTU(), c, r)
-	}()
-
-	return int32(listener.Addr().(*net.TCPAddr).Port)
+	copy((*[1 << 30]byte)(unsafe.Pointer(buf))[:n:n], data)
 }
 
-func cStringToGoString(cstr *byte) string {
-	if cstr == nil {
-		return ""
-	}
-	ptr := uintptr(unsafe.Pointer(cstr))
-	var bytes []byte
-	for {
-		b := *(*byte)(unsafe.Pointer(ptr))
-		if b == 0 {
-			break
-		}
-		bytes = append(bytes, b)
-		ptr++
-	}
-	return string(bytes)
+// FillBufferInt нужно заполнять буфер, чтоб была возможность возвращать код ошибки
+func FillBufferInt(number int32, buf *C.int) {
+	*(*C.int)(unsafe.Pointer(buf)) = C.int(number)
 }
 
-func copyStrToBuf(msg string, buf unsafe.Pointer, bufLen int32) {
-	bytes := []byte(msg)
-
-	if len(bytes) >= int(bufLen) {
-		bytes = bytes[:bufLen-1]
-	}
-
-	copy((*[1 << 30]byte)(buf)[:len(bytes):len(bytes)], bytes)
-	(*[1 << 30]byte)(buf)[len(bytes)] = 0
-}
 func tcpProxyFunc(mtu uint64, dst, src net.Conn) error {
 	buf := make([]byte, mtu)
 	for {
